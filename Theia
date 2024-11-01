@@ -1,0 +1,99 @@
+// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.0;
+
+import "@openzeppelin/contracts/token/ERC20/ERC20.sol";
+import "@openzeppelin/contracts/access/Ownable.sol";
+
+contract TheiaAI is ERC20, Ownable {
+    struct Contributor {
+        uint256 contributions;
+        bool hasVoted;
+    }
+
+    struct Proposal {
+        string description;
+        uint256 voteCount;
+        uint256 deadline;
+        bool executed;
+    }
+
+    mapping(address => Contributor) public contributors;
+    Proposal[] public proposals;
+    uint256 public rewardRate; // Tokens awarded per contribution
+
+    event ContributionRecorded(address indexed contributor, uint256 amount);
+    event ProposalCreated(uint256 proposalId, string description, uint256 deadline);
+    event Voted(address indexed voter, uint256 proposalId);
+    event ProposalExecuted(uint256 proposalId);
+
+    constructor(uint256 _initialSupply, uint256 _rewardRate) ERC20("TheiaToken", "THA") {
+        _mint(msg.sender, _initialSupply * (10 ** decimals()));
+        rewardRate = _rewardRate;
+    }
+
+    // Allow contributors to submit data and receive tokens as rewards
+    function submitContribution(uint256 _dataQualityScore) external {
+        require(_dataQualityScore > 0, "Invalid contribution");
+        
+        uint256 reward = _dataQualityScore * rewardRate;
+        _mint(msg.sender, reward);
+        
+        contributors[msg.sender].contributions += _dataQualityScore;
+        emit ContributionRecorded(msg.sender, _dataQualityScore);
+    }
+
+    // Only owner can create a proposal for model update or parameter change
+    function createProposal(string memory _description, uint256 _duration) external onlyOwner {
+        proposals.push(Proposal({
+            description: _description,
+            voteCount: 0,
+            deadline: block.timestamp + _duration,
+            executed: false
+        }));
+        
+        emit ProposalCreated(proposals.length - 1, _description, block.timestamp + _duration);
+    }
+
+    // Contributors can vote on proposals (one vote per contributor)
+    function vote(uint256 _proposalId) external {
+        Proposal storage proposal = proposals[_proposalId];
+        Contributor storage voter = contributors[msg.sender];
+
+        require(voter.contributions > 0, "Only contributors can vote");
+        require(!voter.hasVoted, "Already voted");
+        require(block.timestamp < proposal.deadline, "Voting period ended");
+
+        proposal.voteCount++;
+        voter.hasVoted = true;
+        
+        emit Voted(msg.sender, _proposalId);
+    }
+
+    // Execute proposal if majority approves (or any other condition you define)
+    function executeProposal(uint256 _proposalId) external onlyOwner {
+        Proposal storage proposal = proposals[_proposalId];
+        require(block.timestamp >= proposal.deadline, "Voting period not over");
+        require(!proposal.executed, "Proposal already executed");
+
+        // Here you would add logic for executing model updates, etc.
+        proposal.executed = true;
+
+        emit ProposalExecuted(_proposalId);
+    }
+
+    // Set a new reward rate (only by the owner)
+    function setRewardRate(uint256 _newRate) external onlyOwner {
+        rewardRate = _newRate;
+    }
+
+    // View number of active proposals
+    function getActiveProposals() external view returns (uint256) {
+        uint256 activeCount = 0;
+        for (uint256 i = 0; i < proposals.length; i++) {
+            if (!proposals[i].executed && proposals[i].deadline > block.timestamp) {
+                activeCount++;
+            }
+        }
+        return activeCount;
+    }
+}
